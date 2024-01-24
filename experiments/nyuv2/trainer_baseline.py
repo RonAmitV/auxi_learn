@@ -16,6 +16,8 @@ from experiments.nyuv2.model import SegNetSplit
 from experiments.utils import get_device, set_logger, set_seed
 from experiments.weight_methods import WeightMethods
 
+# ----------------------------------------------------------------------
+
 parser = argparse.ArgumentParser(description="NYU - Baselines")
 parser.add_argument(
     "--method",
@@ -251,3 +253,4 @@ logging.info(
     f"Epoch: {epoch + 1}, Test mIoU = {test_metrics['seg_miou']:.4f}, "
     f"Test PixAcc = {test_metrics['seg_pixacc']:.4f}",
 )
+# ----------------------------------------------------------------------

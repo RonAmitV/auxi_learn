@@ -29,8 +29,8 @@ class MetaOptimizer:
         """
         # zero grad
         self.zero_grad()
-
-        # validation loss
+        
+        # Get the hypergradients (d_main_loss/d_aux_params) times the hyperlearning rate
         hyper_gards = self.hypergrad.grad(
             main_loss=main_loss,
             train_loss=train_loss,

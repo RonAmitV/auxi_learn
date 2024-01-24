@@ -17,6 +17,8 @@ from experiments.nyuv2.metrics import compute_iou, compute_miou
 from experiments.nyuv2.model import SegNetSplit
 from experiments.utils import get_device, set_logger, set_seed
 
+# ----------------------------------------------------------------------
+
 parser = argparse.ArgumentParser(description="NYU - trainer CNN")
 parser.add_argument("--dataroot", default="datasets/nyuv2", type=str, help="dataset root")
 parser.add_argument("--n-meta-loss-accum", type=int, default=1, help="Number of batches to accumulate for meta loss")
@@ -295,3 +297,4 @@ test_metrics = evaluate(nyuv2_test_loader, model=best_model)
 logging.info(
     f"Epoch: {epoch + 1}, Test mIoU = {test_metrics['seg_miou']:.4f}, Test PixAcc = {test_metrics['seg_pixacc']:.4f}",
 )
+# ----------------------------------------------------------------------
