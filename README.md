@@ -18,18 +18,12 @@ This repository contains the source code to support the paper [_Auxiliary Learni
 <b>Please note:</b> We encountered some issues and drops in performance while working with different PyTorch versions. Please install AuxiLearn on a clean virtual environment!
 
 ```bash
-conda create -n py3 --python=3.11
+conda create -n py3 python=3.11
 conda activate py3
 pip install -r requirements.txt
-```
-
-On a clean virtual environment clone the repo and install:
-
-```bash
-git clone https://github.com/AvivNavon/AuxiLearn.git
-cd AuxiLearn
 pip install .
 ```
+
 
 ## Usage
 
