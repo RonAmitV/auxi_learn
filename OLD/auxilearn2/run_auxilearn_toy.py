@@ -156,6 +156,8 @@ def main():
                 # get the list of train losses for each task
                 train_losses = get_tasks_losses(model_out, labels)
 
+                main_loss = train_losses[:, main_task_class].mean()  # mean over the batch
+
                 # combine losses using 'auxiliary_model' to get the total train loss
                 train_loss = auxiliary_model(train_losses).mean()  # mean over the batch
 
@@ -166,8 +168,6 @@ def main():
                 if max_grad_norm is not None:
                     clip_grad_norm_(d_train_loss_dw, max_norm=max_grad_norm)
                     
-                main_loss = train_losses[:, main_task_class].mean()  # mean over the batch
-
                 # compute the gradient of the main loss w.r.t. the primary model's parameters at current fixed point weights (assumed to be approx W*)
                 d_main_loss_dw = torch.autograd.grad(main_loss, list(primary_model.parameters()), create_graph=True)
 

@@ -36,6 +36,7 @@ class HyperNet(nn.Module):
         :return: list of model parameters
         """
         return list(self.parameters())
+# ----------------------------------------------------------------------
 
 
 class MonoHyperNet(HyperNet):
