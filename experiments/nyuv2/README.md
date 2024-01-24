@@ -44,7 +44,7 @@ python3 trainer_baseline.py --dataroot <dataroot> --method <method>
 e.g.:
 
 ```bash
-python -m experiments.nyuv2.trainer_baseline  --dataroot  dataset/nyuv2   --method stl
+python -m experiments.nyuv2.trainer_baseline  --dataroot  datasets/nyuv2   --method stl
 ```
 
 where `method` is one of:
@@ -87,5 +87,5 @@ python3 trainer_cnn.py --dataroot <dataroot>
 e.g.:
 
 ```bash
-python -m experiments.nyuv2.trainer_cnn  --dataroot  dataset/nyuv2
+python -m experiments.nyuv2.trainer_cnn  --dataroot  datasets/nyuv2
 ```
