@@ -2,6 +2,7 @@ from torch.nn.utils.clip_grad import clip_grad_norm_
 
 from auxilearn.implicit_diff import Hypergrad
 
+# ----------------------------------------------------------------------
 
 class MetaOptimizer:
     def __init__(self, meta_optimizer, hpo_lr, truncate_iter=3, max_grad_norm=10):
@@ -50,3 +51,4 @@ class MetaOptimizer:
 
     def zero_grad(self):
         self.meta_optimizer.zero_grad()
+# ----------------------------------------------------------------------
