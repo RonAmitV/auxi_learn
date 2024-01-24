@@ -122,8 +122,8 @@ def evaluate(dataloader, model=None):
     eval_dict = defaultdict(float)
 
     with torch.no_grad():
-        for _, batch in enumerate(dataloader):
-            batch = (t.to(device) for t in batch)
+        for _, batch_cpu in enumerate(dataloader):
+            batch = (t.to(device) for t in batch_cpu)
             eval_data, eval_label, eval_depth, eval_normal = batch
             eval_label = eval_label.type(torch.LongTensor).to(device)
 
@@ -163,9 +163,9 @@ def evaluate(dataloader, model=None):
 # ==============
 def hyperstep():
     meta_val_loss = 0.0
-    for n_val_step, val_batch in enumerate(nyuv2_meta_val_loader):
+    for n_val_step, val_batch_cpu in enumerate(nyuv2_meta_val_loader):
         if n_val_step < args.n_meta_loss_accum:
-            val_batch = (t.to(device) for t in val_batch)
+            val_batch = (t.to(device) for t in val_batch_cpu)
             val_data, val_label, val_depth, val_normal = val_batch
             val_label = val_label.type(torch.LongTensor).to(device)
 
@@ -187,9 +187,9 @@ def hyperstep():
 
     # inner_loop_end_train_loss, e.g. dL_train/dw
     total_meta_train_loss = 0.0
-    for n_train_step, train_batch in enumerate(nyuv2_train_loader):
+    for n_train_step, train_batch_cpu in enumerate(nyuv2_train_loader):
         if n_train_step < args.n_meta_loss_accum:
-            train_batch = (t.to(device) for t in train_batch)
+            train_batch = (t.to(device) for t in train_batch_cpu)
 
             train_data, train_label, train_depth, train_normal = train_batch
             train_label = train_label.type(torch.LongTensor).to(device)
@@ -233,10 +233,9 @@ epoch_iter = trange(num_epochs)
 for epoch in epoch_iter:
     # iteration for all batches
     SegNet_SPLIT.train()
-    for k, batch in enumerate(nyuv2_train_loader):
+    for k, batch_cpu in enumerate(nyuv2_train_loader):
         step += 1
-
-        batch = (t.to(device) for t in batch)
+        batch = (t.to(device) for t in batch_cpu)
         train_data, train_label, train_depth, train_normal = batch
         train_label = train_label.type(torch.LongTensor).to(device)
 

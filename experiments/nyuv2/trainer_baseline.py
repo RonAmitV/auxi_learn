@@ -118,8 +118,8 @@ def evaluate(dataloader, model=None):
     eval_dict = defaultdict(float)
 
     with torch.no_grad():
-        for _, batch in enumerate(dataloader):
-            batch = (t.to(device) for t in batch)
+        for _, batch_cpu in enumerate(dataloader):
+            batch = (t.to(device) for t in batch_cpu)
             eval_data, eval_label, eval_depth, eval_normal = batch
             eval_label = eval_label.type(torch.LongTensor).to(device)
 
@@ -191,10 +191,9 @@ epoch_iter = trange(num_epochs)
 for epoch in epoch_iter:
     # iteration for all batches
     SegNet_SPLIT.train()
-    for k, batch in enumerate(nyuv2_train_loader):
+    for k, batch_cpu in enumerate(nyuv2_train_loader):
         step += 1
-
-        batch = (t.to(device) for t in batch)
+        batch = (t.to(device) for t in batch_cpu)
         train_data, train_label, train_depth, train_normal = batch
         train_label = train_label.type(torch.LongTensor).to(device)
 
