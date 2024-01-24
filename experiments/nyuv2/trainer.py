@@ -1,34 +1,34 @@
 import argparse
-from collections import defaultdict
-import logging
 import copy
+import logging
+from collections import defaultdict
 
 import numpy as np
 import torch
-import torch.optim as optim
+from torch import optim
 from torch.nn import functional as F
-from tqdm import trange
 from torchsummary import summary
+from tqdm import trange
 
+from auxilearn.hypernet import MonoHyperNet, MonoLinearHyperNet, MonoNonlinearHyperNet
+from auxilearn.optim import MetaOptimizer
 from experiments.nyuv2.data import nyu_dataloaders
 from experiments.nyuv2.metrics import compute_iou, compute_miou
 from experiments.nyuv2.model import SegNetSplit
-from experiments.utils import (get_device, set_logger, set_seed)
-from auxilearn.hypernet import MonoHyperNet, MonoLinearHyperNet, MonoNonlinearHyperNet
-from auxilearn.optim import MetaOptimizer
+from experiments.utils import get_device, set_logger, set_seed
 
-parser = argparse.ArgumentParser(description='NYU - trainer')
-parser.add_argument('--dataroot', default='/nyuv2', type=str, help='dataset root')
+parser = argparse.ArgumentParser(description="NYU - trainer")
+parser.add_argument("--dataroot", default="datasets/nyuv2", type=str, help="dataset root")
 parser.add_argument(
-    '--aux-net',
+    "--aux-net",
     type=str,
-    choices=['linear', 'nonlinear'],
-    default='linear'
+    choices=["linear", "nonlinear"],
+    default="linear",
 )
-parser.add_argument('--n-meta-loss-accum', type=int, default=1, help='Number of batches to accumulate for meta loss')
-parser.add_argument('--eval-every', type=int, default=1, help='num. epochs between test set eval')
-parser.add_argument('--hidden-dim', nargs='+', type=int, default=[3], help="List of hidden dims for nonlinear")
-parser.add_argument('--seed', type=int, default=45, help='random seed')
+parser.add_argument("--n-meta-loss-accum", type=int, default=1, help="Number of batches to accumulate for meta loss")
+parser.add_argument("--eval-every", type=int, default=1, help="num. epochs between test set eval")
+parser.add_argument("--hidden-dim", nargs="+", type=int, default=[3], help="List of hidden dims for nonlinear")
+parser.add_argument("--seed", type=int, default=45, help="random seed")
 args = parser.parse_args()
 
 # set seed - for reproducibility
@@ -52,11 +52,11 @@ hypergrad_every = 50
 # =========
 nyuv2_train_loader, nyuv2_meta_val_loader, nyuv2_val_loader, nyuv2_test_loader = nyu_dataloaders(
     datapath=args.dataroot,
-    validation_indices='experiments/nyuv2/hpo_validation_indices.json',
+    validation_indices="experiments/nyuv2/hpo_validation_indices.json",
     aux_set=True,
     aux_size=aux_size,
     batch_size=batch_size,
-    val_batch_size=val_batch_size
+    val_batch_size=val_batch_size,
 )
 
 
@@ -69,7 +69,7 @@ def calc_loss(seg_pred, seg, depth_pred, depth, pred_normal, normal):
     n_nonzeros = (binary_mask != 0).sum(dim=(1, 2, 3))  # non-zeros per image
 
     # semantic loss: depth-wise cross entropy
-    seg_loss = F.nll_loss(seg_pred, seg, ignore_index=-1, reduction='none').mean(dim=(1, 2))
+    seg_loss = F.nll_loss(seg_pred, seg, ignore_index=-1, reduction="none").mean(dim=(1, 2))
 
     # depth loss: l1 norm
     depth_loss = torch.sum(torch.abs(depth_pred - depth) * binary_mask, dim=1).sum(dim=(1, 2)) / n_nonzeros
@@ -85,7 +85,7 @@ def calc_loss(seg_pred, seg, depth_pred, depth, pred_normal, normal):
 # =====
 device = get_device()
 SegNet_SPLIT = SegNetSplit(logsigma=False)
-summary(SegNet_SPLIT, input_size=(3, 288, 384), device='cpu')
+summary(SegNet_SPLIT, input_size=(3, 288, 384), device="cpu")
 SegNet_SPLIT = SegNet_SPLIT.to(device)
 
 
@@ -99,8 +99,8 @@ auxnet_mapping = dict(
 
 auxnet_config = dict(input_dim=3, main_task=0, weight_normalization=False)
 
-if args.aux_net == 'nonlinear':
-    auxnet_config['hidden_sizes'] = args.hidden_dim
+if args.aux_net == "nonlinear":
+    auxnet_config["hidden_sizes"] = args.hidden_dim
 
 auxiliary_net = auxnet_mapping[args.aux_net](**auxnet_config)
 auxiliary_net = auxiliary_net.to(device)
@@ -114,12 +114,15 @@ scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=100, gamma=0.5)
 meta_opt = optim.SGD(
     auxiliary_net.parameters(),
     lr=meta_lr,
-    momentum=.9,
-    weight_decay=meta_wd
+    momentum=0.9,
+    weight_decay=meta_wd,
 )
 
 meta_optimizer = MetaOptimizer(
-    meta_optimizer=meta_opt, hpo_lr=1e-4, truncate_iter=3, max_grad_norm=25
+    meta_optimizer=meta_opt,
+    hpo_lr=1e-4,
+    truncate_iter=3,
+    max_grad_norm=25,
 )
 
 
@@ -146,17 +149,17 @@ def evaluate(dataloader, model=None):
                 eval_pred[1],
                 eval_depth,
                 eval_pred[2],
-                eval_normal
+                eval_normal,
             )
 
             eval_loss = eval_loss.mean(0)
             curr_batch_size = eval_data.shape[0]
             total += curr_batch_size
-            curr_eval_dict = dict(
-                seg_loss=eval_loss[0].item() * curr_batch_size,
-                seg_miou=compute_miou(eval_pred[0], eval_label).item() * curr_batch_size,
-                seg_pixacc=compute_iou(eval_pred[0], eval_label).item() * curr_batch_size
-            )
+            curr_eval_dict = {
+                "seg_loss": eval_loss[0].item() * curr_batch_size,
+                "seg_miou": compute_miou(eval_pred[0], eval_label).item() * curr_batch_size,
+                "seg_pixacc": compute_iou(eval_pred[0], eval_label).item() * curr_batch_size,
+            }
 
             for k, v in curr_eval_dict.items():
                 eval_dict[k] += v
@@ -173,7 +176,7 @@ def evaluate(dataloader, model=None):
 # hypergrad step
 # ==============
 def hyperstep():
-    meta_val_loss = .0
+    meta_val_loss = 0.0
     for n_val_step, val_batch in enumerate(nyuv2_meta_val_loader):
         if n_val_step < args.n_meta_loss_accum:
             val_batch = (t.to(device) for t in val_batch)
@@ -188,16 +191,16 @@ def hyperstep():
                 val_pred[1],
                 val_depth,
                 val_pred[2],
-                val_normal
+                val_normal,
             )
 
             meta_val_loss += val_loss[:, 0].mean(0)
 
     # inner_loop_end_train_loss, e.g. dL_train/dw
-    total_meta_train_loss = 0.
+    total_meta_train_loss = 0.0
     for n_train_step, train_batch in enumerate(nyuv2_train_loader):
         if n_train_step < args.n_meta_loss_accum:
-            train_batch = (t.to(device)[:val_batch_size, ] for t in train_batch)
+            train_batch = (t.to(device)[:val_batch_size,] for t in train_batch)
 
             train_data, train_label, train_depth, train_normal = train_batch
             train_label = train_label.type(torch.LongTensor).to(device)
@@ -210,7 +213,7 @@ def hyperstep():
                 train_pred[1],
                 train_depth,
                 train_pred[2],
-                train_normal
+                train_normal,
             )
 
             meta_train_loss = auxiliary_net(train_loss)
@@ -218,11 +221,11 @@ def hyperstep():
 
     # hyperpatam step
     curr_hypergrads = meta_optimizer.step(
-        val_loss=meta_val_loss,
+        main_loss=meta_val_loss,
         train_loss=total_meta_train_loss,
         aux_params=list(auxiliary_net.parameters()),
-        parameters=list(SegNet_SPLIT.parameters()),
-        return_grads=True
+        primary_param=list(SegNet_SPLIT.parameters()),
+        return_grads=True,
     )
 
     return curr_hypergrads
@@ -256,7 +259,7 @@ for epoch in epoch_iter:
             train_pred[1],
             train_depth,
             train_pred[2],
-            train_normal
+            train_normal,
         )
 
         avg_train_losses = train_losses.mean(0)
@@ -264,7 +267,7 @@ for epoch in epoch_iter:
         # task weights
         loss = auxiliary_net(train_losses)
 
-        epoch_iter.set_description(f'[{epoch} {k}] Training loss {loss.data.cpu().numpy().item():.5f}')
+        epoch_iter.set_description(f"[{epoch} {k}] Training loss {loss.data.cpu().numpy().item():.5f}")
 
         loss.backward()
         optimizer.step()
@@ -285,7 +288,7 @@ for epoch in epoch_iter:
 
         logging.info(
             f"Epoch: {epoch + 1}, Test mIoU = {test_metrics['seg_miou']:.4f}, "
-            f"Test PixAcc = {test_metrics['seg_pixacc']:.4f}"
+            f"Test PixAcc = {test_metrics['seg_pixacc']:.4f}",
         )
 
         if val_metrics["seg_miou"] >= best_metric:
@@ -300,5 +303,5 @@ logging.info(f"End of training, best model from epoch {best_model_epoch}")
 
 test_metrics = evaluate(nyuv2_test_loader, model=best_model)
 logging.info(
-    f"Epoch: {epoch + 1}, Test mIoU = {test_metrics['seg_miou']:.4f}, Test PixAcc = {test_metrics['seg_pixacc']:.4f}"
+    f"Epoch: {epoch + 1}, Test mIoU = {test_metrics['seg_miou']:.4f}, Test PixAcc = {test_metrics['seg_pixacc']:.4f}",
 )
