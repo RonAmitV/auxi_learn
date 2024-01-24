@@ -1,0 +1,84 @@
+[tool.ruff]
+line-length = 120
+indent-width = 4
+target-version = "py311"
+fix = true
+
+# To opt in to linting and formatting Jupyter Notebook 
+extend-include = ["*.ipynb"]
+
+# Exclude a variety of commonly ignored directories.
+exclude = [
+    ".bzr",
+    ".direnv",
+    ".eggs",
+    ".git",
+    ".git-rewrite",
+    ".hg",
+    ".mypy_cache",
+    ".nox",
+    ".pants.d",
+    ".pytype",
+    ".ruff_cache",
+    ".svn",
+    ".tox",
+    ".venv",
+    "__pypackages__",
+    "_build",
+    "buck-out",
+    "build",
+    "dist",
+    "node_modules",
+    "venv",
+]
+# Here select what rules to use (see https://docs.astral.sh/ruff/rules/ )
+select = [
+  "F", "E", "W", "I", "N", "UP",
+  "YTT", "ANN", "ASYNC", "BLE", "B", "A", "COM",  "C4", "DTZ",
+  "T10", "ISC", "INP", "PIE", "PYI", "PT", "Q", "RSE", "RET", "SLF", "SIM",
+  "TID", "TCH", "ARG", "PTH",
+  "PD",  "PGH", "PL", "TRY", "FLY", "NPY", "PERF", "FURB", "LOG",
+  "RUF",
+]
+# Avoid trying to fix these errors:
+unfixable = [
+  "E711",  # None comparison
+  "F841",  #  local variable is assigned to but never used
+  "ARG001", # Unused argument
+] 
+#  rules to ignore:
+ignore = ["E501", # line too long (let Black handle this)
+          "PLR2004", # Magic value used in comparison, consider using a constant
+          "PLR0913", # too many arguments
+          "PLR0913", # Too many arguments to function call
+          "PLR0912", # Too many branches
+          "PLR0915", # Too many statements
+          "ANN201", #  Missing return type annotation for public function
+          "ANN204", # Missing return type annotation
+          "W293", # Blank line contains whitespace
+          "Q000", #  bad quotes
+          "N806", #  variable in function should be lowercase
+          "N802", #  function name should be lowercase
+          "N803", #  argument name should be lowercase
+          "N813", #  camelcase imported as lowercase
+          "RET504", #  Unnecessary variable assignment before return statement
+          "TRY003", # Avoid specifying long messages outside the exception class
+          "TRY301", # raise-within-try
+          "PT018", # assertion should be broken into multiple lines
+          "ANN001", # Missing type annotation
+          "ANN101", # Missing type annotation for class attribute
+          "ANN002", # Missing type annotation 
+          "ANN003", # Missing type annotation 
+          "ANN202", # Missing type annotation
+          "ANN205", # Missing return type annotation for staticmethod `_init_layer`
+          "N812", # lowercase imported as uppercase
+          "UP017", # Use datetime.UTC alias
+          "NPY002", # Replace legacy `np.random.seed` call with `np.random.Generator`
+          "N999", # Invalid module name
+          "C419", # Unnecessary list comprehension 
+          "PLR0911", # Too many return statements
+          "N801", # Class name should use CapWords convention 
+          "PERF401", # Use a list comprehension to create a transformed list
+          "SIM108", # Use ternary operator instead of `if`-`else`-block 
+          "B007", # Loop control variable not used within loop body
+]
