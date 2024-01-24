@@ -8,16 +8,13 @@ from experiments.utils import detach_to_numpy
 
 
 class WeightingMethod:
-
     @abstractmethod
     def backward(self, losses, *args, **kwargs):
         pass
 
 
 class GradCosine(WeightingMethod):
-    """Implementation of the unweighted version of the alg. in 'Adapting Auxiliary Losses Using Gradient Similarity'
-
-    """
+    """Implementation of the unweighted version of the alg. in 'Adapting Auxiliary Losses Using Gradient Similarity'"""
 
     def __init__(self, main_task, **kwargs):
         self.main_task = main_task
@@ -25,12 +22,10 @@ class GradCosine(WeightingMethod):
 
     @staticmethod
     def _flattening(grad):
-        return torch.cat(tuple(g.reshape(-1, ) for i, g in enumerate(grad)), axis=0)
+        return torch.cat(tuple(g.reshape(-1) for i, g in enumerate(grad)), axis=0)
 
     def get_grad_cos_sim(self, grad1, grad2):
-        """Computes cosine simillarity of gradients after flattening of tensors.
-
-        """
+        """Computes cosine simillarity of gradients after flattening of tensors."""
 
         flat_grad1 = self._flattening(grad1)
         flat_grad2 = self._flattening(grad2)
@@ -59,19 +54,19 @@ class GradCosine(WeightingMethod):
             cosine = self.get_grad_cos_sim(main_grad, aux_grad)
 
             if cosine > 0:
-                grad = tuple(g + ga for g, ga in zip(grad, aux_grad))
+                grad = tuple(g + ga for g, ga in zip(grad, aux_grad, strict=False))
 
         return grad
 
     def backward(self, losses, shared_parameters, returns=True, **kwargs):
         shared_grad = self.get_grad(
             losses,
-            shared_parameters=shared_parameters
+            shared_parameters=shared_parameters,
         )
         loss = torch.sum(torch.stack(losses))
         loss.backward()
         # update grads for shared weights
-        for p, g in zip(shared_parameters, shared_grad):
+        for p, g in zip(shared_parameters, shared_grad, strict=False):
             p.grad = g
 
         if returns:
@@ -84,6 +79,7 @@ class GradNorm(WeightingMethod):
     https://github.com/hosseinshn/GradNorm/blob/master/GradNormv10.ipynb
 
     """
+
     def __init__(self, n_tasks, alpha=1.5, device=None, **kwargs):
         """
 
@@ -92,7 +88,7 @@ class GradNorm(WeightingMethod):
         """
         self.n_tasks = n_tasks
         self.alpha = alpha
-        self.weights = torch.ones((n_tasks, ), requires_grad=True, device=device)
+        self.weights = torch.ones((n_tasks,), requires_grad=True, device=device)
         self.init_losses = None
 
     def backward(self, losses, last_shared_params, returns=True, **kwargs):
@@ -118,7 +114,7 @@ class GradNorm(WeightingMethod):
 
         # compute grad norms
         norms = []
-        for w_i, L_i in zip(self.weights, losses):
+        for w_i, L_i in zip(self.weights, losses, strict=False):
             dlidW = torch.autograd.grad(L_i, last_shared_params, retain_graph=True)[0]
             norms.append(torch.norm(w_i * dlidW))
 
@@ -131,7 +127,7 @@ class GradNorm(WeightingMethod):
             loss_ratios = losses / self.init_losses
             # inverse training rate r(t)
             inverse_train_rates = loss_ratios / loss_ratios.mean()
-            constant_term = norms.mean() * (inverse_train_rates ** self.alpha)
+            constant_term = norms.mean() * (inverse_train_rates**self.alpha)
 
         grad_norm_loss = (norms - constant_term).abs().sum()
         self.weights.grad = torch.autograd.grad(grad_norm_loss, self.weights)[0]
@@ -146,9 +142,7 @@ class GradNorm(WeightingMethod):
 
 
 class STL(WeightingMethod):
-    """Single task learning
-
-    """
+    """Single task learning"""
 
     def __init__(self, main_task, **kwargs):
         self.main_task = main_task
@@ -162,15 +156,17 @@ class STL(WeightingMethod):
 
 
 class Uncertainty(WeightingMethod):
-    """For `Multi-Task Learning Using Uncertainty to Weigh Losses for Scene Geometry and Semantics`
+    """For `Multi-Task Learning Using Uncertainty to Weigh Losses for Scene Geometry and Semantics`"""
 
-    """
     def __init__(self, **kwargs):
         pass
 
     def backward(self, losses, logsigmas, returns=True, **kwargs):
         loss = sum(
-            [1 / (2 * torch.exp(logsigma)) * loss + logsigma / 2 for loss, logsigma in zip(losses, logsigmas)]
+            [
+                1 / (2 * torch.exp(logsigma)) * loss + logsigma / 2
+                for loss, logsigma in zip(losses, logsigmas, strict=False)
+            ],
         )
         loss.backward()
 
@@ -182,7 +178,8 @@ class DynamicWeightAverage(WeightingMethod):
     """Dynamic Weight Average from `End-to-End Multi-Task Learning with Attention`.
     Source: https://github.com/lorenmt/mtan/blob/master/im2im_pred/model_segnet_split.py#L242
     """
-    def __init__(self, n_tasks,  n_epochs, n_train_batch, temp=2., **kwargs):
+
+    def __init__(self, n_tasks, n_epochs, n_train_batch, temp=2.0, **kwargs):
         self.n_tasks = n_tasks
         self.temp = temp
         self.avg_cost = np.zeros([n_epochs, n_tasks], dtype=np.float32)
@@ -197,14 +194,12 @@ class DynamicWeightAverage(WeightingMethod):
             self.lambda_weight[:, epoch] = 1.0
 
         else:
-            ws = [
-                self.avg_cost[epoch - 1, i] / self.avg_cost[epoch - 2, i]
-                for i in range(self.n_tasks)
-            ]
+            ws = [self.avg_cost[epoch - 1, i] / self.avg_cost[epoch - 2, i] for i in range(self.n_tasks)]
 
             for i in range(self.n_tasks):
-                self.lambda_weight[i, epoch] = self.n_tasks * np.exp(ws[i] / self.temp) /\
-                                               np.sum((np.exp(w / self.temp) for w in ws))
+                self.lambda_weight[i, epoch] = (
+                    self.n_tasks * np.exp(ws[i] / self.temp) / np.sum(np.exp(w / self.temp) for w in ws)
+                )
 
         loss = torch.mean(sum(self.lambda_weight[i, epoch] * losses[i] for i in range(self.n_tasks)))
         loss.backward()
@@ -214,7 +209,6 @@ class DynamicWeightAverage(WeightingMethod):
 
 
 class Equal(WeightingMethod):
-
     def __init__(self, **kwargs):
         pass
 
@@ -226,7 +220,6 @@ class Equal(WeightingMethod):
 
 
 class WeightMethods:
-
     def __init__(self, method: str, **kwargs):
         """
 
@@ -238,10 +231,9 @@ class WeightMethods:
             dwa=DynamicWeightAverage,
             cosine=GradCosine,
             gradnorm=GradNorm,
-            uncert=Uncertainty
-
+            uncert=Uncertainty,
         )
-        assert method in list(baselines.keys()), 'unknown weight method'
+        assert method in list(baselines.keys()), "unknown weight method"
 
         self.method = baselines[method](**kwargs)
 

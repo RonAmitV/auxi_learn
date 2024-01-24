@@ -23,7 +23,7 @@ class HyperNet(nn.Module):
         :param losses: losses form each task. This should be a tensor of size (batch_size, self.input_dim)
         :param outputs: Optional. Parameters model output.
         :param labels: Optional. Target.
-        :param data: Optiona. Parameters model input.
+        :param data: Optional. Parameters model input.
         :return:
         """
 
