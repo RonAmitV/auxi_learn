@@ -17,7 +17,7 @@ class HyperNet(nn.Module):
         self.main_task = main_task
         self.input_dim = input_dim
 
-    def forward(self, losses, outputs=None, labels=None, data=None):
+    def forward(self):
         """
 
         :param losses: losses form each task. This should be a tensor of size (batch_size, self.input_dim)

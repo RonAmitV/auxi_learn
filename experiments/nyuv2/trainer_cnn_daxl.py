@@ -2,6 +2,7 @@ import argparse
 import copy
 import logging
 from collections import defaultdict
+from copy import deepcopy
 
 import numpy as np
 import torch
@@ -46,14 +47,15 @@ hypergrad_every = 50
 # =========
 # load data
 # =========
-train_loader, meta_val_loader, val_loader, test_loader = nyu_dataloaders(
+train_loader, val_loader, test_loader = nyu_dataloaders(
     datapath=args.dataroot,
     validation_indices="experiments/nyuv2/hpo_validation_indices.json",
-    aux_set=True,
+    aux_set=False, # In our case - we don't split the training set into train and aux sets
     aux_size=aux_size,
     batch_size=batch_size,
     val_batch_size=val_batch_size,
 )
+train_loader_2 = deepcopy(train_loader)
 
 
 # ====
@@ -164,15 +166,16 @@ def evaluate(dataloader, model=None):
 # hypergrad step
 # ==============
 def hyperstep():
-    meta_val_loss = 0.0
-    for i_val_step, val_batch_cpu in enumerate(meta_val_loader):
-        if i_val_step < args.n_meta_loss_accum:
-            val_batch = (t.to(device) for t in val_batch_cpu)
-            val_data, val_label, val_depth, val_normal = val_batch
+    main_loss_w_plus = 0.0
+    main_loss_w_minus = 0.0
+    for i_hyper_batch, hyper_batch_cpu in enumerate(train_loader_2):
+        if i_hyper_batch < args.n_meta_loss_accum:
+            
+            # Compute the main task loss on current weights
+            hyper_batch = (t.to(device) for t in hyper_batch_cpu)
+            val_data, val_label, val_depth, val_normal = hyper_batch
             val_label = val_label.type(torch.LongTensor).to(device)
-
             val_pred = SegNet_SPLIT(val_data)
-
             val_loss = calc_loss(
                 val_pred[0],
                 val_label,
@@ -181,11 +184,34 @@ def hyperstep():
                 val_pred[2],
                 val_normal,
             )
-
             # (batch, task, height, width)
             val_loss = val_loss.mean(dim=(0, 2, 3))
-
-            meta_val_loss += val_loss[0].mean(0)
+            main_loss_w_plus += val_loss[0].mean(0)
+            
+            # create a "negative" batch - with wrong labels
+            hyper_batch = (t.to(device) for t in hyper_batch_cpu)
+            neg_data, neg_label, neg_depth, neg_normal = hyper_batch
+                        
+            # Compute the main task loss on current weights, with the "negative" batch
+            # Flip labels
+            neg_label = 12 - neg_label.type(torch.LongTensor).to(device)
+            neg_depth = 11.0 - neg_depth
+            neg_normal *= -1
+            neg_pred = SegNet_SPLIT(neg_data)
+            neg_loss = calc_loss(
+                neg_pred[0],
+                neg_label,
+                neg_pred[1],
+                neg_depth,
+                neg_pred[2],
+                neg_normal,
+            )
+            neg_loss = neg_loss.mean(dim=(0, 2, 3))
+            main_loss_w_minus += neg_loss[0].mean(0)
+            
+            
+            
+            
 
     # inner_loop_end_train_loss, e.g. dL_train/dw
     total_meta_train_loss = 0.0
@@ -212,7 +238,7 @@ def hyperstep():
 
     # hyperpatam step
     curr_hypergrads = meta_optimizer.step(
-        main_loss=meta_val_loss,
+        main_loss=main_loss_w_plus,
         train_loss=total_meta_train_loss,
         aux_params=list(auxiliary_net.parameters()),
         primary_param=list(SegNet_SPLIT.parameters()),
