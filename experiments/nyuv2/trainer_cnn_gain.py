@@ -18,185 +18,6 @@ from experiments.nyuv2.model import SegNetSplit
 from experiments.utils import get_device, set_logger, set_seed
 
 # ----------------------------------------------------------------------
-
-
-# ====
-# loss
-# ====
-def calc_loss(seg_pred, seg, depth_pred, depth, pred_normal, normal):
-    """Per-pixel loss, i.e., loss image"""
-    # binary mark to mask out undefined pixel space
-    binary_mask = (torch.sum(depth, dim=1) != 0).type(torch.FloatTensor).unsqueeze(1).to(depth.device)
-
-    # semantic loss: depth-wise cross entropy
-    seg_loss = F.nll_loss(seg_pred, seg, ignore_index=-1, reduction="none")
-
-    # depth loss: l1 norm
-    depth_loss = torch.sum(torch.abs(depth_pred - depth) * binary_mask, dim=1)
-
-    # normal loss: dot product
-    normal_loss = 1 - torch.sum((pred_normal * normal) * binary_mask, dim=1)
-
-    return torch.stack((seg_loss, depth_loss, normal_loss), dim=1)
-
-
-# ----------------------------------------------------------------------
-
-
-# ========
-# evaluate
-# ========
-def evaluate(dataloader, prim_model: torch.nn.Module, device=None):
-    prim_model.eval()
-    total = 0
-    eval_dict = defaultdict(float)
-
-    with torch.no_grad():
-        for _, batch_cpu in enumerate(dataloader):
-            batch = (t.contiguous().to(device) for t in batch_cpu)
-            eval_data, eval_label, eval_depth, eval_normal = batch
-            eval_label = eval_label.type(torch.LongTensor).to(device)
-
-            eval_pred = prim_model(eval_data)
-            # loss
-            eval_loss = calc_loss(
-                eval_pred[0],
-                eval_label,
-                eval_pred[1],
-                eval_depth,
-                eval_pred[2],
-                eval_normal,
-            )
-
-            eval_loss = eval_loss.mean(dim=(0, 2, 3))
-            curr_batch_size = eval_data.shape[0]
-            total += curr_batch_size
-            curr_eval_dict = {
-                "seg_loss": eval_loss[0].item() * curr_batch_size,
-                "seg_miou": compute_miou(eval_pred[0], eval_label).item() * curr_batch_size,
-                "seg_pixacc": compute_iou(eval_pred[0], eval_label).item() * curr_batch_size,
-            }
-
-            for k, v in curr_eval_dict.items():
-                eval_dict[k] += v
-
-    for k, v in eval_dict.items():
-        eval_dict[k] = v / total
-
-    prim_model.train()
-
-    return eval_dict
-
-
-# ----------------------------------------------------------------------
-# ==============
-# hypergrad step
-# ==============
-def hyperstep(
-    prim_model: torch.nn.Module,
-    aux_model: torch.nn.Module,
-    train_loader,
-    meta_optimizer,
-    device,
-    n_meta_loss_accum: int,
-):
-    # Compute these terms by summing over batches:
-    main_loss_w_plus = 0.0  #  \Lmain (W, D)
-    aux_loss_w_plus = 0.0  #  \Laux(W, \phi,  D)
-    main_loss_w_minus = 0.0  #  \Lmain (W, D^-)
-    aux_loss_w_minus = 0.0  #  \Laux(W, \phi,  D^-)
-
-    for i_hyper_batch, hyper_batch_cpu in enumerate(train_loader):
-        if i_hyper_batch >= n_meta_loss_accum:
-            break
-
-        # Get the "positive" real data batch
-        hyper_batch = (t.contiguous().to(device) for t in hyper_batch_cpu)
-        x_data, pos_label, pos_depth, pos_normal = hyper_batch
-        pos_label = pos_label.type(torch.LongTensor).to(device)
-        x_data = x_data.to(device)
-
-        net_pred = prim_model(x_data)
-
-        # Compute the tasks losses on current weights
-        pos_losses = calc_loss(
-            net_pred[0],
-            pos_label,
-            net_pred[1],
-            pos_depth,
-            net_pred[2],
-            pos_normal,
-        )
-        # (batch, task, height, width)
-
-        # Compute the the total auxiliary loss: \Laux(W, \phi,  D)
-        aux_loss_w_plus += aux_model(pos_losses)
-
-        # average over batch and spatial dimensions
-        pos_losses = pos_losses.mean(dim=(0, 2, 3))  # [n_tasks]
-
-        # Compute the main task loss:   \Lmain (W, D)
-        main_loss_w_plus += pos_losses[0].mean(0)  # [1]
-
-        # create a "negative" batch - with wrong random labels
-        neg_label = torch.randint_like(pos_label, -1, 13)
-        neg_depth = torch.rand_like(pos_depth) * 10
-        neg_normal = torch.rand_like(pos_normal) * 2 - 1
-
-        # Compute the main task loss on current weights, with the "negative" batch
-        neg_losses = calc_loss(
-            net_pred[0],
-            neg_label,
-            net_pred[1],
-            neg_depth,
-            net_pred[2],
-            neg_normal,
-        )
-        # Compute the the total auxiliary loss on "negative" batch: \Laux(W, \phi,  D^-)
-        aux_loss_w_minus += aux_model(neg_losses)
-
-        # average over batch and spatial dimensions
-        neg_losses = neg_losses.mean(dim=(0, 2, 3))  # [n_tasks]
-
-        # Compute the main task loss on "negative" batch   \Lmain (W, D^-)
-        main_loss_w_minus += neg_losses[0].mean(0)
-
-    # The total train loss is the sum of the main and auxiliary losses
-    train_loss_w_plus = main_loss_w_plus + aux_loss_w_plus
-
-    train_loss_w_minus = main_loss_w_minus + aux_loss_w_minus
-
-    # Compute the the total hypergradient by the implicit differentiation of of the positive term
-    # minus the implicit differentiation of thenegative term
-
-    # The gradient of \Lmain (W^+(\phi), D) w.r.t. \phi
-    plus_hypergrads = meta_optimizer.step(
-        main_loss=main_loss_w_plus,
-        train_loss=train_loss_w_plus,
-        aux_params=list(aux_model.parameters()),
-        primary_param=list(prim_model.parameters()),
-        take_step=False,
-        return_grads=True,
-    )
-    # The gradient of \Lmain (W^-(\phi), D) w.r.t. \phi
-    neg_hypergrads = meta_optimizer.step(
-        main_loss=main_loss_w_plus,
-        train_loss=train_loss_w_minus,
-        aux_params=list(aux_model.parameters()),
-        primary_param=list(prim_model.parameters()),
-        take_step=False,
-        return_grads=True,
-    )
-
-    hypergrads = [plus - neg for plus, neg in zip(plus_hypergrads, neg_hypergrads, strict=False)]
-
-    # Take a meta_optimisation step using the hypergradients
-    meta_optimizer.optimizer_step(aux_params=list(aux_model.parameters()), hyper_gards=hypergrads)
-
-    return hypergrads
-
-
-# ----------------------------------------------------------------------
 def main():
     parser = argparse.ArgumentParser(description="NYU - trainer CNN")
     parser.add_argument("--dataroot", default="datasets/nyuv2", type=str, help="dataset root")
@@ -351,6 +172,184 @@ def main():
     logging.info(
         f"Epoch: {epoch + 1}, Test mIoU = {test_metrics['seg_miou']:.4f}, Test PixAcc = {test_metrics['seg_pixacc']:.4f}",
     )
+
+# ----------------------------------------------------------------------
+
+
+# ====
+# loss
+# ====
+def calc_loss(seg_pred, seg, depth_pred, depth, pred_normal, normal):
+    """Per-pixel loss, i.e., loss image"""
+    # binary mark to mask out undefined pixel space
+    binary_mask = (torch.sum(depth, dim=1) != 0).type(torch.FloatTensor).unsqueeze(1).to(depth.device)
+
+    # semantic loss: depth-wise cross entropy
+    seg_loss = F.nll_loss(seg_pred, seg, ignore_index=-1, reduction="none")
+
+    # depth loss: l1 norm
+    depth_loss = torch.sum(torch.abs(depth_pred - depth) * binary_mask, dim=1)
+
+    # normal loss: dot product
+    normal_loss = 1 - torch.sum((pred_normal * normal) * binary_mask, dim=1)
+
+    return torch.stack((seg_loss, depth_loss, normal_loss), dim=1)
+
+
+# ----------------------------------------------------------------------
+
+
+# ========
+# evaluate
+# ========
+def evaluate(dataloader, prim_model: torch.nn.Module, device=None):
+    prim_model.eval()
+    total = 0
+    eval_dict = defaultdict(float)
+
+    with torch.no_grad():
+        for _, batch_cpu in enumerate(dataloader):
+            batch = (t.contiguous().to(device) for t in batch_cpu)
+            eval_data, eval_label, eval_depth, eval_normal = batch
+            eval_label = eval_label.type(torch.LongTensor).to(device)
+
+            eval_pred = prim_model(eval_data)
+            # loss
+            eval_loss = calc_loss(
+                eval_pred[0],
+                eval_label,
+                eval_pred[1],
+                eval_depth,
+                eval_pred[2],
+                eval_normal,
+            )
+
+            eval_loss = eval_loss.mean(dim=(0, 2, 3))
+            curr_batch_size = eval_data.shape[0]
+            total += curr_batch_size
+            curr_eval_dict = {
+                "seg_loss": eval_loss[0].item() * curr_batch_size,
+                "seg_miou": compute_miou(eval_pred[0], eval_label).item() * curr_batch_size,
+                "seg_pixacc": compute_iou(eval_pred[0], eval_label).item() * curr_batch_size,
+            }
+
+            for k, v in curr_eval_dict.items():
+                eval_dict[k] += v
+
+    for k, v in eval_dict.items():
+        eval_dict[k] = v / total
+
+    prim_model.train()
+
+    return eval_dict
+
+
+# ----------------------------------------------------------------------
+# ==============
+# hypergrad step
+# ==============
+def hyperstep(
+    prim_model: torch.nn.Module,
+    aux_model: torch.nn.Module,
+    train_loader,
+    meta_optimizer,
+    device,
+    n_meta_loss_accum: int,
+):
+    # Compute these terms by summing over batches:
+    main_loss_w_plus = 0.0  #  \Lmain (W, D)
+    aux_loss_w_plus = 0.0  #  \Laux(W, \phi,  D)
+    main_loss_w_minus = 0.0  #  \Lmain (W, D^-)
+    aux_loss_w_minus = 0.0  #  \Laux(W, \phi,  D^-)
+
+    for i_hyper_batch, hyper_batch_cpu in enumerate(train_loader):
+        if i_hyper_batch >= n_meta_loss_accum:
+            break
+
+        # Get the "positive" real data batch
+        hyper_batch = (t.contiguous().to(device) for t in hyper_batch_cpu)
+        x_data, pos_label, pos_depth, pos_normal = hyper_batch
+        pos_label = pos_label.type(torch.LongTensor).to(device)
+        x_data = x_data.to(device)
+
+        net_pred = prim_model(x_data)
+
+        # Compute the tasks losses on current weights
+        pos_losses = calc_loss(
+            net_pred[0],
+            pos_label,
+            net_pred[1],
+            pos_depth,
+            net_pred[2],
+            pos_normal,
+        )
+        # (batch, task, height, width)
+
+        # Compute the the total auxiliary loss: \Laux(W, \phi,  D)
+        aux_loss_w_plus += aux_model(pos_losses)
+
+        # average over batch and spatial dimensions
+        pos_losses = pos_losses.mean(dim=(0, 2, 3))  # [n_tasks]
+
+        # Compute the main task loss:   \Lmain (W, D)
+        main_loss_w_plus += pos_losses[0].mean(0)  # [1]
+
+        # create a "negative" batch - with wrong random labels
+        fake_label = torch.randint_like(pos_label, -1, 13)
+        fake_depth = torch.rand_like(pos_depth) * 10
+        fake_normal = torch.rand_like(pos_normal) * 2 - 1
+
+        # Compute the main task loss on current weights, with the "negative" batch
+        fake_losses = calc_loss(
+            net_pred[0],
+            fake_label,
+            net_pred[1],
+            fake_depth,
+            net_pred[2],
+            fake_normal,
+        )
+        # Compute the the total auxiliary loss on "negative" batch: \Laux(W, \phi,  D^-)
+        aux_loss_w_minus += aux_model(fake_losses)
+
+        # average over batch and spatial dimensions
+        fake_losses = fake_losses.mean(dim=(0, 2, 3))  # [n_tasks]
+
+        # Compute the main task loss on "negative" batch   \Lmain (W, D^-)
+        main_loss_w_minus += fake_losses[0].mean(0)
+
+    # The total train loss is the sum of the main and auxiliary losses
+    train_loss_w_plus = main_loss_w_plus + aux_loss_w_plus
+
+    train_loss_w_minus = main_loss_w_minus + aux_loss_w_minus
+
+    # Compute the the total hypergradient by the implicit differentiation of of the positive term
+    # minus the implicit differentiation of thenegative term
+
+    # The gradient of \Lmain (W^+(\phi), D) w.r.t. \phi
+    plus_hypergrads = meta_optimizer.step(
+        main_loss=main_loss_w_plus,
+        train_loss=train_loss_w_plus,
+        aux_params=list(aux_model.parameters()),
+        primary_param=list(prim_model.parameters()),
+        take_step=False,
+        return_grads=True,
+    )
+    # The gradient of \Lmain (W^-(\phi), D) w.r.t. \phi
+    neg_hypergrads = meta_optimizer.step(
+        main_loss=main_loss_w_plus,
+        train_loss=train_loss_w_minus,
+        aux_params=list(aux_model.parameters()),
+        primary_param=list(prim_model.parameters()),
+        take_step=False,
+        return_grads=True,
+    )
+
+    hypergrads = [plus - neg for plus, neg in zip(plus_hypergrads, neg_hypergrads, strict=False)]
+
+    # Take a meta_optimisation step using the hypergradients
+    meta_optimizer.optimizer_step(aux_params=list(aux_model.parameters()), hyper_gards=hypergrads)
+
+    return hypergrads
 
 
 # ----------------------------------------------------------------------
