@@ -259,8 +259,8 @@ def hyperstep(
     # Compute these terms by summing over batches:
     main_loss_w_plus = 0.0  #  \Lmain (W, D)
     aux_loss_w_plus = 0.0  #  \Laux(W, \phi,  D)
-    main_loss_w_minus = 0.0  #  \Lmain (W, D^-)
-    aux_loss_w_minus = 0.0  #  \Laux(W, \phi,  D^-)
+    main_loss_w_minus = 0.0  #  \Lmain (W, D^F)
+    aux_loss_w_minus = 0.0  #  \Laux(W, \phi,  D^F)
 
     for i_hyper_batch, hyper_batch_cpu in enumerate(train_loader):
         if i_hyper_batch >= n_meta_loss_accum:
@@ -308,13 +308,13 @@ def hyperstep(
             net_pred[2],
             fake_normal,
         )
-        # Compute the the total auxiliary loss on "negative" batch: \Laux(W, \phi,  D^-)
+        # Compute the the total auxiliary loss on "negative" batch: \Laux(W, \phi,  D^F)
         aux_loss_w_minus += aux_model(fake_losses)
 
         # average over batch and spatial dimensions
         fake_losses = fake_losses.mean(dim=(0, 2, 3))  # [n_tasks]
 
-        # Compute the main task loss on "negative" batch   \Lmain (W, D^-)
+        # Compute the main task loss on "negative" batch   \Lmain (W, D^F)
         main_loss_w_minus += fake_losses[0].mean(0)
 
     # The total train loss is the sum of the main and auxiliary losses
