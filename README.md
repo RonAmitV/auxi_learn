@@ -21,7 +21,7 @@ This repository contains the source code to support the paper [_Auxiliary Learni
 conda create -n py3 python=3.11
 conda activate py3
 pip install -r requirements.txt
- pip install -e .
+pip install -e .
  ```
 
 ## Usage

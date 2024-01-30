@@ -137,12 +137,10 @@ def hyperstep(
         # Compute the main task loss:   \Lmain (W, D)
         main_loss_w_plus += pos_losses[0].mean(0)  # [1]
 
-        # create a "negative" batch - with wrong labels
-        # Flip labels
-        neg_label = 12 - pos_label
-        neg_depth = 11.0 - pos_depth
-        neg_normal = -pos_normal
-        # TODO:  do noise instead - uniform
+        # create a "negative" batch - with wrong random labels
+        neg_label = torch.randint_like(pos_label, -1, 13)
+        neg_depth = torch.rand_like(pos_depth) * 10
+        neg_normal = torch.rand_like(pos_normal) * 2 - 1
 
         # Compute the main task loss on current weights, with the "negative" batch
         neg_losses = calc_loss(
