@@ -4,7 +4,7 @@ This repository contains the source code to support the paper [_Auxiliary Learni
 
 ---
 
-<p align="center"> 
+<p align="center">
     <img src="https://github.com/AvivNavon/AuxiLearn/blob/master/resources/framework.png" width="800">
 </p>
 
@@ -21,13 +21,13 @@ This repository contains the source code to support the paper [_Auxiliary Learni
 conda create -n py3 python=3.11
 conda activate py3
 pip install -r requirements.txt
-pip install .
-```
+ pip install -e .
+ ```
 
 
 ## Usage
 
-Given a bi-level optimization problem in which the upper-level parameters (i.e., auxiliary parameters) are only 
+Given a bi-level optimization problem in which the upper-level parameters (i.e., auxiliary parameters) are only
 implicitly affecting the upper-level objective, you can use `auxilearn` to compute the upper-level gradients through implicit differentiation.
 
 The main code component you will need to use is `auxilearn.optim.MetaOptimizer`. It is a wrapper over
@@ -35,12 +35,12 @@ PyTorch optimizers that updates its parameters through implicit differentiation.
 
 ### Code example
 
-We assume two models, `primary_model` and `auxiliary_model`, and two dataloaders. 
+We assume two models, `primary_model` and `auxiliary_model`, and two dataloaders.
 The `primary_model` is optimized using the train data in the `train_loader`, and the `auxiliary_model` is optimized using the auxiliary set in the `aux_loader`.
 We assume a `loss_fuction` that return the train loss if `train=True`, or auxiliary set loss if `train=False`.
-Also, we assume the training loss is a function of both the primary parameters and the auxiliary parameters, 
-and that the loss on the auxiliary set (or validation set) is a function of the primary parameters only. 
-In _Auxiliary Learning_, the auxiliary set loss is the loss on the main task (see paper for more details). 
+Also, we assume the training loss is a function of both the primary parameters and the auxiliary parameters,
+and that the loss on the auxiliary set (or validation set) is a function of the primary parameters only.
+In _Auxiliary Learning_, the auxiliary set loss is the loss on the main task (see paper for more details).
 
 ```python
 from auxilearn.optim import MetaOptimizer
@@ -71,7 +71,7 @@ for epoch in range(epochs):
             # calc current train loss
             train_set_loss = loss_func(train=True)
             # calc current auxiliary set loss - this is the loss over the main task
-            auxiliary_set_loss = loss_func(train=False) 
+            auxiliary_set_loss = loss_func(train=False)
             
             # update auxiliary parameters - no need to call loss.backwards() or aux_optimizer.zero_grad()
             aux_optimizer.step(

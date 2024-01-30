@@ -17,7 +17,7 @@ class MetaOptimizer:
         self.hypergrad = Hypergrad(learning_rate=hpo_lr, truncate_iter=truncate_iter)
         self.max_grad_norm = max_grad_norm
 
-    def step(self, train_loss, main_loss, primary_param, aux_params, return_grads=False):
+    def step(self, train_loss, main_loss, primary_param, aux_params, return_grads=False, take_step=True):
         """
 
         :param train_loss: train loader
@@ -38,17 +38,24 @@ class MetaOptimizer:
             primary_param=primary_param,
         )
 
+        # meta step
+        if take_step:
+            self.optimizer_step(aux_params, hyper_gards)
+            
+        return hyper_gards if return_grads else None
+
+    def zero_grad(self):
+        self.meta_optimizer.zero_grad()
+    
+
+    def optimizer_step(self, aux_params, hyper_gards):
         for p, g in zip(aux_params, hyper_gards, strict=False):
             p.grad = g
 
         # grad clipping
         if self.max_grad_norm is not None:
             clip_grad_norm_(aux_params, max_norm=self.max_grad_norm)
-
-        # meta step
+        
         self.meta_optimizer.step()
-        return hyper_gards if return_grads else None
 
-    def zero_grad(self):
-        self.meta_optimizer.zero_grad()
 # ----------------------------------------------------------------------
