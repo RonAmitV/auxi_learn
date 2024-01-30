@@ -53,7 +53,7 @@ def evaluate(dataloader, prim_model: torch.nn.Module, device=None):
 
     with torch.no_grad():
         for _, batch_cpu in enumerate(dataloader):
-            batch = (t.to(device) for t in batch_cpu)
+            batch = (t.contiguous().to(device) for t in batch_cpu)
             eval_data, eval_label, eval_depth, eval_normal = batch
             eval_label = eval_label.type(torch.LongTensor).to(device)
 
@@ -111,9 +111,10 @@ def hyperstep(
             break
 
         # Get the "positive" real data batch
-        hyper_batch = (t.to(device) for t in hyper_batch_cpu)
+        hyper_batch = (t.contiguous().to(device) for t in hyper_batch_cpu)
         x_data, pos_label, pos_depth, pos_normal = hyper_batch
         pos_label = pos_label.type(torch.LongTensor).to(device)
+        x_data = x_data.to(device)
 
         net_pred = prim_model(x_data)
 
@@ -286,7 +287,7 @@ def main():
         prim_model.train()
         for k, batch_cpu in enumerate(train_loader):
             step += 1
-            batch = (t.to(device) for t in batch_cpu)
+            batch = (t.contiguous().to(device) for t in batch_cpu)
             train_data, train_label, train_depth, train_normal = batch
             train_label = train_label.type(torch.LongTensor).to(device)
 
