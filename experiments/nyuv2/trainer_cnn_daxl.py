@@ -142,6 +142,7 @@ def hyperstep(
         neg_label = 12 - pos_label
         neg_depth = 11.0 - pos_depth
         neg_normal = -pos_normal
+        # TODO:  do noise instead - uniform
 
         # Compute the main task loss on current weights, with the "negative" batch
         neg_losses = calc_loss(

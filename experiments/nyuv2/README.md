@@ -87,5 +87,5 @@ python3 trainer_cnn.py --dataroot <dataroot>
 e.g.:
 
 ```bash
-python -m experiments.nyuv2.trainer_cnn  --dataroot  datasets/nyuv2
+python -m experiments.nyuv2.trainer_cnn_daxl  --dataroot  datasets/nyuv2
 ```

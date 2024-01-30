@@ -24,7 +24,6 @@ pip install -r requirements.txt
  pip install -e .
  ```
 
-
 ## Usage
 
 Given a bi-level optimization problem in which the upper-level parameters (i.e., auxiliary parameters) are only
@@ -37,7 +36,7 @@ PyTorch optimizers that updates its parameters through implicit differentiation.
 
 We assume two models, `primary_model` and `auxiliary_model`, and two dataloaders.
 The `primary_model` is optimized using the train data in the `train_loader`, and the `auxiliary_model` is optimized using the auxiliary set in the `aux_loader`.
-We assume a `loss_fuction` that return the train loss if `train=True`, or auxiliary set loss if `train=False`.
+We assume a `loss_function` that return the train loss if `train=True`, or auxiliary set loss if `train=False`.
 Also, we assume the training loss is a function of both the primary parameters and the auxiliary parameters,
 and that the loss on the auxiliary set (or validation set) is a function of the primary parameters only.
 In _Auxiliary Learning_, the auxiliary set loss is the loss on the main task (see paper for more details).
