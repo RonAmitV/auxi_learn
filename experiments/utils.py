@@ -5,6 +5,13 @@ import random
 import numpy as np
 import torch
 
+# --------------------------------------------------------------------------------------------------------------------
+
+
+def to_np(x):
+    if isinstance(x, torch.Tensor):
+        return x.detach().cpu().numpy()
+    return x
 
 def set_logger():
     logging.basicConfig(

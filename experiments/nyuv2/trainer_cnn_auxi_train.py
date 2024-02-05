@@ -12,7 +12,7 @@ from tqdm import trange
 
 from auxilearn.hypernet import MonoHyperNet, MonoNoFCCNNHyperNet
 from auxilearn.optim import MetaOptimizer
-from experiments.nyuv2.data import nyu_dataloaders
+from experiments.nyuv2.data import get_nyu_dataset
 from experiments.nyuv2.metrics import compute_iou, compute_miou
 from experiments.nyuv2.model import SegNetSplit
 from experiments.utils import get_device, set_logger, set_seed
@@ -50,14 +50,35 @@ def main():
     # =========
     # load data
     # =========
-    train_loader, val_loader, test_loader = nyu_dataloaders(
+    
+    
+    train_set, val_set, test_set = get_nyu_dataset(
         datapath=args.dataroot,
         validation_indices="experiments/nyuv2/hpo_validation_indices.json",
-        aux_set=False,  # In our case - we don't split the training set into train and aux sets
-        batch_size=batch_size,
-        val_batch_size=val_batch_size,
     )
-
+    
+    train_loader = torch.utils.data.DataLoader(
+        dataset=train_set,
+        batch_size=batch_size,
+        shuffle=True,
+    )
+    val_loader = torch.utils.data.DataLoader(
+        dataset=val_set,
+        batch_size=val_batch_size,
+        shuffle=True,
+    )
+    test_loader = torch.utils.data.DataLoader(
+        dataset=test_set,
+        batch_size=batch_size,
+        shuffle=True,
+    )
+    train_loader2 = torch.utils.data.DataLoader(
+        dataset=train_set,
+        batch_size=batch_size,
+        shuffle=True,
+    )
+    data_iter2 = iter(train_loader2)
+    
     # =====
     # model
     # =====
@@ -136,7 +157,8 @@ def main():
                 hyperstep(
                     prim_model=prim_model,
                     aux_model=aux_model,
-                    train_loader=train_loader,
+                    train_loader2=train_loader2,
+                    data_iter2=data_iter2,
                     meta_optimizer=meta_optimizer,
                     device=device,
                     n_meta_loss_accum=args.n_meta_loss_accum,
@@ -251,7 +273,8 @@ def evaluate(dataloader, prim_model: torch.nn.Module, device=None):
 def hyperstep(
     prim_model: torch.nn.Module,
     aux_model: torch.nn.Module,
-    train_loader,
+    train_loader2,
+    data_iter2,
     meta_optimizer,
     device,
     n_meta_loss_accum: int,
@@ -259,13 +282,13 @@ def hyperstep(
     # Compute these terms by summing over batches:
     main_loss_w_plus = 0.0  #  \Lmain (W, D)
     aux_loss_w_plus = 0.0  #  \Laux(W, \phi,  D)
-    main_loss_w_minus = 0.0  #  \Lmain (W, D^F)
-    aux_loss_w_minus = 0.0  #  \Laux(W, \phi,  D^F)
 
-    for i_hyper_batch, hyper_batch_cpu in enumerate(train_loader):
-        if i_hyper_batch >= n_meta_loss_accum:
-            break
-
+    for i_hyper_batch in range(n_meta_loss_accum):
+        try:
+            hyper_batch_cpu = next(data_iter2)
+        except StopIteration:
+            data_iter2 = iter(train_loader2)
+            hyper_batch_cpu = next(data_iter2)
         # Get the "positive" real data batch
         hyper_batch = (t.contiguous().to(device) for t in hyper_batch_cpu)
         x_data, pos_label, pos_depth, pos_normal = hyper_batch
@@ -294,39 +317,14 @@ def hyperstep(
         # Compute the main task loss:   \Lmain (W, D)
         main_loss_w_plus += pos_losses[0].mean(0)  # [1]
 
-        # create a "negative" batch - with wrong random labels
-        fake_label = torch.randint_like(pos_label, -1, 13)
-        fake_depth = torch.rand_like(pos_depth) * 10
-        fake_normal = torch.rand_like(pos_normal) * 2 - 1
-
-        # Compute the main task loss on current weights, with the "negative" batch
-        fake_losses = calc_task_losses(
-            net_pred[0],
-            fake_label,
-            net_pred[1],
-            fake_depth,
-            net_pred[2],
-            fake_normal,
-        )
-        # Compute the the total auxiliary loss on "negative" batch: \Laux(W, \phi,  D^F)
-        aux_loss_w_minus += aux_model(fake_losses)
-
-        # average over batch and spatial dimensions
-        fake_losses = fake_losses.mean(dim=(0, 2, 3))  # [n_tasks]
-
-        # Compute the main task loss on "negative" batch   \Lmain (W, D^F)
-        main_loss_w_minus += fake_losses[0].mean(0)
-
     # The total train loss is the sum of the main and auxiliary losses
     train_loss_w_plus = main_loss_w_plus + aux_loss_w_plus
-
-    train_loss_w_minus = main_loss_w_minus + aux_loss_w_minus
 
     # Compute the the total hypergradient by the implicit differentiation of of the positive term
     # minus the implicit differentiation of thenegative term
 
     # The gradient of \Lmain (W^+(\phi), D) w.r.t. \phi
-    plus_hypergrads = meta_optimizer.step(
+    hypergrads = meta_optimizer.step(
         main_loss=main_loss_w_plus,
         train_loss=train_loss_w_plus,
         aux_params=list(aux_model.parameters()),
@@ -334,17 +332,6 @@ def hyperstep(
         take_step=False,
         return_grads=True,
     )
-    # The gradient of \Lmain (W^-(\phi), D) w.r.t. \phi
-    neg_hypergrads = meta_optimizer.step(
-        main_loss=main_loss_w_plus,
-        train_loss=train_loss_w_minus,
-        aux_params=list(aux_model.parameters()),
-        primary_param=list(prim_model.parameters()),
-        take_step=False,
-        return_grads=True,
-    )
-
-    hypergrads = [plus - neg for plus, neg in zip(plus_hypergrads, neg_hypergrads, strict=False)]
 
     # Take a meta_optimisation step using the hypergradients
     meta_optimizer.optimizer_step(aux_params=list(aux_model.parameters()), hyper_gards=hypergrads)

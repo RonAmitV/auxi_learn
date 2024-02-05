@@ -40,6 +40,20 @@ class NYUv2(Dataset):
         return self.data_len
 
 
+def get_nyu_dataset(datapath, validation_indices):
+    
+    nyuv2_train_set = NYUv2(root=datapath, train=True)
+    # split to train/val
+    # for HPO we pre-allocated 10% of training examples
+    hpo_indices_mapping = json.load(open(validation_indices))
+
+    # train/val
+    train_set = torch.utils.data.Subset(nyuv2_train_set, indices=hpo_indices_mapping["train_indices"])
+    val_set = torch.utils.data.Subset(nyuv2_train_set, indices=hpo_indices_mapping["validation_indices"])
+    test_set = NYUv2(root=datapath, train=False)
+    return train_set, val_set, test_set
+    
+
 def nyu_dataloaders(datapath, validation_indices, batch_size=8, val_batch_size=2, aux_set=False, aux_size=None):
     """NYU dataloaders
 
@@ -51,28 +65,20 @@ def nyu_dataloaders(datapath, validation_indices, batch_size=8, val_batch_size=2
     :param aux_size:
     :return:
     """
-    nyuv2_train_set = NYUv2(root=datapath, train=True)
-    # split to train/val
-    # for HPO we pre-allocated 10% of training examples
-    hpo_indices_mapping = json.load(open(validation_indices))
-
-    # train/val
-    train = torch.utils.data.Subset(nyuv2_train_set, indices=hpo_indices_mapping["train_indices"])
-    nyuv2_val_set = torch.utils.data.Subset(nyuv2_train_set, indices=hpo_indices_mapping["validation_indices"])
-    nyuv2_test_set = NYUv2(root=datapath, train=False)
+    train_set, val_set, test_set = get_nyu_dataset(datapath, validation_indices)
 
     if aux_set:
         assert 0 < aux_size < 1
         # meta validation
-        meta_val_size = int(len(train) * aux_size)
-        train, meta_val = torch.utils.data.random_split(
-            train,
-            (len(train) - meta_val_size, meta_val_size),
+        meta_val_size = int(len(train_set) * aux_size)
+        train_set, meta_val = torch.utils.data.random_split(
+            train_set,
+            (len(train_set) - meta_val_size, meta_val_size),
         )
 
         # loaders
         nyuv2_train_loader = torch.utils.data.DataLoader(
-            dataset=train,
+            dataset=train_set,
             batch_size=batch_size,
             shuffle=True,
         )
@@ -82,12 +88,12 @@ def nyu_dataloaders(datapath, validation_indices, batch_size=8, val_batch_size=2
             shuffle=True,
         )
         nyuv2_val_loader = torch.utils.data.DataLoader(
-            dataset=nyuv2_val_set,
+            dataset=val_set,
             batch_size=val_batch_size,
             shuffle=True,
         )
         nyuv2_test_loader = torch.utils.data.DataLoader(
-            dataset=nyuv2_test_set,
+            dataset=test_set,
             batch_size=batch_size,
             shuffle=True,
         )
@@ -95,17 +101,17 @@ def nyu_dataloaders(datapath, validation_indices, batch_size=8, val_batch_size=2
         return nyuv2_train_loader, nyuv2_meta_val_loader, nyuv2_val_loader, nyuv2_test_loader
 
     nyuv2_train_loader = torch.utils.data.DataLoader(
-        dataset=train,
+        dataset=train_set,
         batch_size=batch_size,
         shuffle=True,
     )
     nyuv2_val_loader = torch.utils.data.DataLoader(
-        dataset=nyuv2_val_set,
+        dataset=val_set,
         batch_size=val_batch_size,
         shuffle=True,
     )
     nyuv2_test_loader = torch.utils.data.DataLoader(
-        dataset=nyuv2_test_set,
+        dataset=test_set,
         batch_size=batch_size,
         shuffle=True,
     )

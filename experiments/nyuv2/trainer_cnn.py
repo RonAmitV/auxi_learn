@@ -225,7 +225,7 @@ def hyperstep():
 # ==========
 # train loop
 # ==========
-best_metric = np.NINF
+best_metric = -np.inf
 best_model_epoch = 0
 best_miou, best_pixacc = 0, 0
 step = 0
