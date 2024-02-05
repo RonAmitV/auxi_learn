@@ -252,17 +252,15 @@ def evaluate(dataloader, prim_model: torch.nn.Module, device=None):
             eval_label = eval_label.type(torch.LongTensor).to(device)
 
             eval_pred = prim_model(eval_data)
-
-            eval_loss = calc_main_loss(seg_pred=eval_pred[0], seg=eval_label)
-
-            # average over batch and pixels
-            eval_loss = eval_loss.mean()
+            seg_pred, depth_pred, normal_pred = eval_pred
+            eval_loss = calc_main_loss(seg_pred=seg_pred, seg=eval_label)
             curr_batch_size = eval_data.shape[0]
+            eval_loss_mean = eval_loss.mean() #  average over batch and pixels
             total += curr_batch_size
             curr_eval_dict = {
-                "seg_loss": eval_loss.item() * curr_batch_size,
-                "seg_miou": compute_miou(eval_pred, eval_label).item() * curr_batch_size,
-                "seg_pixacc": compute_iou(eval_pred, eval_label).item() * curr_batch_size,
+                "seg_loss": eval_loss_mean.item() * curr_batch_size,
+                "seg_miou": compute_miou(seg_pred, eval_label).item() * curr_batch_size,
+                "seg_pixacc": compute_iou(seg_pred, eval_label).item() * curr_batch_size,
             }
 
             for k, v in curr_eval_dict.items():
