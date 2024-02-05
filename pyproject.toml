@@ -66,7 +66,6 @@ ignore = ["E501", # line too long (let Black handle this)
           "TRY301", # raise-within-try
           "PT018", # assertion should be broken into multiple lines
           "ANN001", # Missing type annotation
-          "ANN101", # Missing type annotation for class attribute
           "ANN002", # Missing type annotation 
           "ANN003", # Missing type annotation 
           "ANN202", # Missing type annotation
@@ -81,4 +80,5 @@ ignore = ["E501", # line too long (let Black handle this)
           "PERF401", # Use a list comprehension to create a transformed list
           "SIM108", # Use ternary operator instead of `if`-`else`-block 
           "B007", # Loop control variable not used within loop body
+          "ANN101", # Missing type annotation for self
 ]

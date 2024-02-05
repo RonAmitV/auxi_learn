@@ -65,7 +65,8 @@ def main():
         shuffle=True,
     )
     data_iter2 = iter(train_loader2)
-
+    n_aux_tasks  = 2 # depth and normal
+    
     # =====
     # model
     # =====
@@ -111,6 +112,7 @@ def main():
 
             main_loss1.backward()
             optimizer.step()
+            main_loss1 = to_np(main_loss1)
             
             # save the current model state
             model_state = copy.deepcopy(prim_model.state_dict())
@@ -125,22 +127,16 @@ def main():
             train_data2, train_label2, train_depth2, train_normal2 = batch2
             train_label2 = train_label2.type(torch.LongTensor).to(device)
             
-            # Calculate the auxiliary task losses
-            train_pred2 = prim_model(train_data2)
-            aux_losses2 = calc_auxiliary_losses(
-                depth_pred=train_pred2[1],
-                depth=train_depth2,
-                pred_normal=train_pred2[2],
-                normal=train_normal2,
-            )
-            n_aux_tasks = len(aux_losses2)
-            
+
             #  Probe the main task loss on the first batch after taking a gradient step with each auxiliary task
             main_loss_probes = np.zeros(n_aux_tasks)
             for i_task in range(n_aux_tasks):
-                aux_loss = aux_losses2[i_task]
-                # Average over batch and pixels
-                aux_loss = aux_loss.mean()
+                optimizer.zero_grad()
+                # Get the current task auxiliary loss (average over batch and pixels) on batch 2
+                # Get the per-pixel predictions from the model (segmentation, depth, normal)
+                train_pred2 = prim_model(train_data2)
+                seg_pred2, depth_pred2, normal_pred2 = train_pred2
+                aux_loss = calc_auxiliary_loss(i_task, depth_pred2, train_depth2, normal_pred2, train_normal2).mean()
                 aux_loss.backward()
                 optimizer.step()
                 # check the main task loss with batch 1
@@ -150,12 +146,16 @@ def main():
                 main_loss_probes[i_task] = to_np(main_loss_check)
                 # restore the model state
                 prim_model.load_state_dict(model_state)
+                del aux_loss, main_loss_check
             
             # choose the auxiliary task with the smallest main task loss after step (or keep the previous model)
             best_aux_task = np.argmin(main_loss_probes)
-            if main_loss_probes[best_aux_task] < to_np(main_loss1):
+            if main_loss_probes[best_aux_task] < main_loss1:
                 # If the main task loss is reduced, take a gradient step with the best auxiliary task.
-                aux_losses2[best_aux_task].backward()
+                train_pred2 = prim_model(train_data2)
+                seg_pred2, depth_pred2, normal_pred2 = train_pred2
+                aux_loss = calc_auxiliary_loss(best_aux_task, depth_pred2, train_depth2, normal_pred2, train_normal2).mean()
+                aux_loss.backward()
                 optimizer.step()
             
         lr_scheduler.step()
@@ -208,7 +208,7 @@ def calc_main_loss(seg_pred, seg):
 # ----------------------------------------------------------------------
 
 
-def calc_auxiliary_losses(depth_pred, depth, pred_normal, normal):
+def calc_auxiliary_loss(i_task, depth_pred, depth, pred_normal, normal):
     """Calculate the axuiliary task losses. Per-pixel loss, i.e., loss image.
     Args:
         depth_pred: (batch, 1, height, width) - estimation of the depth.
@@ -220,14 +220,19 @@ def calc_auxiliary_losses(depth_pred, depth, pred_normal, normal):
     """
     # binary mark to mask out undefined pixel space
     binary_mask = (torch.sum(depth, dim=1) != 0).type(torch.FloatTensor).unsqueeze(1).to(depth.device)
-    # depth loss: l1 norm
-    depth_loss = torch.sum(torch.abs(depth_pred - depth) * binary_mask, dim=1)
+    
+    if i_task == 0:
+        # depth loss: l1 norm
+        # depth loss: l1 norm
+        depth_loss = torch.sum(torch.abs(depth_pred - depth) * binary_mask, dim=1)
+        return depth_loss
+    
+    if i_task == 1:
+        # normal loss: dot product
+        normal_loss = 1 - torch.sum((pred_normal * normal) * binary_mask, dim=1)
+        return normal_loss
 
-    # normal loss: dot product
-    normal_loss = 1 - torch.sum((pred_normal * normal) * binary_mask, dim=1)
-
-    return depth_loss, normal_loss
-
+    raise ValueError("Invalid task index")
 
 # ----------------------------------------------------------------------
 
@@ -248,22 +253,16 @@ def evaluate(dataloader, prim_model: torch.nn.Module, device=None):
 
             eval_pred = prim_model(eval_data)
 
-            eval_loss = calc_auxiliary_losses(
-                eval_pred[0],
-                eval_label,
-                eval_pred[1],
-                eval_depth,
-                eval_pred[2],
-                eval_normal,
-            )
+            eval_loss = calc_main_loss(seg_pred=eval_pred[0], seg=eval_label)
 
-            eval_loss = eval_loss.mean(dim=(0, 2, 3))
+            # average over batch and pixels
+            eval_loss = eval_loss.mean()
             curr_batch_size = eval_data.shape[0]
             total += curr_batch_size
             curr_eval_dict = {
-                "seg_loss": eval_loss[0].item() * curr_batch_size,
-                "seg_miou": compute_miou(eval_pred[0], eval_label).item() * curr_batch_size,
-                "seg_pixacc": compute_iou(eval_pred[0], eval_label).item() * curr_batch_size,
+                "seg_loss": eval_loss.item() * curr_batch_size,
+                "seg_miou": compute_miou(eval_pred, eval_label).item() * curr_batch_size,
+                "seg_pixacc": compute_iou(eval_pred, eval_label).item() * curr_batch_size,
             }
 
             for k, v in curr_eval_dict.items():
