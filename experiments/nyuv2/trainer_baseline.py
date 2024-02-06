@@ -52,7 +52,7 @@ val_batch_size = 2
 nyuv2_train_loader, nyuv2_val_loader, nyuv2_test_loader = nyu_dataloaders(
     datapath=args.dataroot,
     validation_indices="experiments/nyuv2/hpo_validation_indices.json",
-    aux_set=False,
+    use_meta_train=False,
     batch_size=batch_size,
     val_batch_size=val_batch_size,
 )
@@ -181,7 +181,7 @@ scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=100, gamma=0.5)
 # ==========
 # train loop
 # ==========
-best_metric = np.NINF
+best_metric = -np.inf
 best_model_epoch = 0
 best_miou, best_pixacc = 0, 0
 step = 0

@@ -19,6 +19,71 @@ from experiments.utils import get_device, set_logger, set_seed
 
 # ----------------------------------------------------------------------
 
+
+# ==============
+# hypergrad step
+# ==============
+def hyperstep():
+    
+    # Compute the main task loss on the meta-train data \L_main (W, D_meta)
+    meta_main_loss = 0.0
+    for i_val_step, meta_batch_cpu in enumerate(meta_train_loader):
+        if i_val_step < args.n_meta_loss_accum:
+            val_batch = (t.to(device) for t in meta_batch_cpu)
+            data, label, depth, normal = val_batch
+            label = label.type(torch.LongTensor).to(device)
+            # Ge the mode prediction
+            pred = SegNet_SPLIT(data)
+            # get the losses
+            losses = calc_loss(
+                pred[0],
+                label,
+                pred[1],
+                depth,
+                pred[2],
+                normal,
+            ) # (batch, task, height, width)
+            
+            # average loss over the batch and spatial dimensions
+            losses = losses.mean(dim=(0, 2, 3))
+            # accumulate the main task (#0) loss
+            meta_main_loss += losses[0].mean(0)
+
+    # Compute the train loss on the train set \L_train(W, \phi,  D)
+    train_loss = 0.0
+    for n_train_step, train_batch_cpu in enumerate(train_loader):
+        if n_train_step < args.n_meta_loss_accum:
+            train_batch = (t.to(device) for t in train_batch_cpu)
+
+            train_data, train_label, train_depth, train_normal = train_batch
+            train_label = train_label.type(torch.LongTensor).to(device)
+
+            train_pred = SegNet_SPLIT(train_data)
+
+            train_loss = calc_loss(
+                train_pred[0],
+                train_label,
+                train_pred[1],
+                train_depth,
+                train_pred[2],
+                train_normal,
+            )
+
+            train_loss = auxiliary_net(train_loss)
+            train_loss += train_loss
+
+    # hyperpatam step
+    curr_hypergrads = meta_optimizer.step(
+        main_loss=meta_main_loss,
+        train_loss=train_loss,
+        aux_params=list(auxiliary_net.parameters()),
+        primary_param=list(SegNet_SPLIT.parameters()),
+        return_grads=True,
+    )
+
+    return curr_hypergrads
+# ----------------------------------------------------------------------
+
 parser = argparse.ArgumentParser(description="NYU - trainer CNN")
 parser.add_argument("--dataroot", default="datasets/nyuv2", type=str, help="dataset root")
 parser.add_argument("--n-meta-loss-accum", type=int, default=1, help="Number of batches to accumulate for meta loss")
@@ -37,7 +102,7 @@ set_logger()
 num_epochs = 200
 batch_size = 8
 val_batch_size = 2
-aux_size = 0.025
+meta_train_ratio = 0.025 # ratio of the training set
 meta_lr = 1e-4
 meta_wd = 1e-5
 hypergrad_every = 50
@@ -46,15 +111,14 @@ hypergrad_every = 50
 # =========
 # load data
 # =========
-train_loader, meta_val_loader, val_loader, test_loader = nyu_dataloaders(
+train_loader, meta_train_loader, val_loader, test_loader = nyu_dataloaders(
     datapath=args.dataroot,
     validation_indices="experiments/nyuv2/hpo_validation_indices.json",
-    aux_set=True,
-    aux_size=aux_size,
+    use_meta_train=True,
+    meta_train_ratio=meta_train_ratio,
     batch_size=batch_size,
     val_batch_size=val_batch_size,
 )
-
 
 # ====
 # loss
@@ -160,66 +224,6 @@ def evaluate(dataloader, model=None):
     return eval_dict
 
 
-# ==============
-# hypergrad step
-# ==============
-def hyperstep():
-    meta_val_loss = 0.0
-    for i_val_step, val_batch_cpu in enumerate(meta_val_loader):
-        if i_val_step < args.n_meta_loss_accum:
-            val_batch = (t.to(device) for t in val_batch_cpu)
-            val_data, val_label, val_depth, val_normal = val_batch
-            val_label = val_label.type(torch.LongTensor).to(device)
-
-            val_pred = SegNet_SPLIT(val_data)
-
-            val_loss = calc_loss(
-                val_pred[0],
-                val_label,
-                val_pred[1],
-                val_depth,
-                val_pred[2],
-                val_normal,
-            )
-
-            # (batch, task, height, width)
-            val_loss = val_loss.mean(dim=(0, 2, 3))
-
-            meta_val_loss += val_loss[0].mean(0)
-
-    # inner_loop_end_train_loss, e.g. dL_train/dw
-    total_meta_train_loss = 0.0
-    for n_train_step, train_batch_cpu in enumerate(train_loader):
-        if n_train_step < args.n_meta_loss_accum:
-            train_batch = (t.to(device) for t in train_batch_cpu)
-
-            train_data, train_label, train_depth, train_normal = train_batch
-            train_label = train_label.type(torch.LongTensor).to(device)
-
-            train_pred = SegNet_SPLIT(train_data)
-
-            train_loss = calc_loss(
-                train_pred[0],
-                train_label,
-                train_pred[1],
-                train_depth,
-                train_pred[2],
-                train_normal,
-            )
-
-            meta_train_loss = auxiliary_net(train_loss)
-            total_meta_train_loss += meta_train_loss
-
-    # hyperpatam step
-    curr_hypergrads = meta_optimizer.step(
-        main_loss=meta_val_loss,
-        train_loss=total_meta_train_loss,
-        aux_params=list(auxiliary_net.parameters()),
-        primary_param=list(SegNet_SPLIT.parameters()),
-        return_grads=True,
-    )
-
-    return curr_hypergrads
 
 
 # ==========

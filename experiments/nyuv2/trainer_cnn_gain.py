@@ -53,7 +53,7 @@ def main():
     train_loader, val_loader, test_loader = nyu_dataloaders(
         datapath=args.dataroot,
         validation_indices="experiments/nyuv2/hpo_validation_indices.json",
-        aux_set=False,  # In our case - we don't split the training set into train and aux sets
+        use_meta_train=False,  # In our case - we don't split the training set into train and aux sets
         batch_size=batch_size,
         val_batch_size=val_batch_size,
     )

@@ -53,8 +53,8 @@ hypergrad_every = 50
 nyuv2_train_loader, nyuv2_meta_val_loader, nyuv2_val_loader, nyuv2_test_loader = nyu_dataloaders(
     datapath=args.dataroot,
     validation_indices="experiments/nyuv2/hpo_validation_indices.json",
-    aux_set=True,
-    aux_size=aux_size,
+    use_meta_train=True,
+    meta_train_ratio=aux_size,
     batch_size=batch_size,
     val_batch_size=val_batch_size,
 )

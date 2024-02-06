@@ -54,7 +54,7 @@ def get_nyu_dataset(datapath, validation_indices):
     return train_set, val_set, test_set
     
 
-def nyu_dataloaders(datapath, validation_indices, batch_size=8, val_batch_size=2, aux_set=False, aux_size=None):
+def nyu_dataloaders(datapath, validation_indices, batch_size=8, val_batch_size=2, use_meta_train=False, meta_train_ratio=None):
     """NYU dataloaders
 
     :param datapath:
@@ -67,10 +67,10 @@ def nyu_dataloaders(datapath, validation_indices, batch_size=8, val_batch_size=2
     """
     train_set, val_set, test_set = get_nyu_dataset(datapath, validation_indices)
 
-    if aux_set:
-        assert 0 < aux_size < 1
+    if use_meta_train:
+        assert 0 < meta_train_ratio < 1
         # meta validation
-        meta_val_size = int(len(train_set) * aux_size)
+        meta_val_size = int(len(train_set) * meta_train_ratio)
         train_set, meta_val = torch.utils.data.random_split(
             train_set,
             (len(train_set) - meta_val_size, meta_val_size),
